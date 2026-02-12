@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Búsqueda de Piezas por Imagen</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      background: #f5f6fa;
+    }
+
+    header {
+      background: #54177a;
+      color: white;
+      padding: 16px;
+      text-align: center;
+      font-size: 20px;
+    }
+
+    .container {
+      display: flex;
+      padding: 20px;
+      gap: 20px;
+    }
+
+    .panel {
+      width: 300px;
+      background: white;
+      padding: 16px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,.1);
+    }
+
+    .panel h3 {
+      margin-top: 0;
+    }
+
+    .panel input,
+    .panel select {
+      width: 100%;
+      margin-bottom: 12px;
+    }
+
+    .panel button {
+      width: 100%;
+      padding: 10px;
+      background: #6a1b9a;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .panel button:hover {
+      background: #4a148c;
+    }
+
+    .preview {
+      margin-top: 10px;
+      position: relative;
+    }
+
+    .preview img {
+      max-width: 100%;
+      border-radius: 6px;
+      border: 1px solid #ddd;
+      display: block;
+    }
+
+    .roi {
+      position: absolute;
+      border: 2px dashed red;
+      pointer-events: none;
+    }
+
+    .results {
+      flex: 1;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 6px rgba(0,0,0,.1);
+    }
+
+    .card img {
+      width: 100%;
+      height: 160px;
+      object-fit: cover;
+    }
+
+    .card .info {
+      padding: 10px;
+      font-size: 14px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 12px;
+      color: white;
+      margin-top: 6px;
+    }
+
+    .alta { background: #2e7d32; }
+    .media { background: #f9a825; }
+    .baja { background: #c62828; }
+  </style>
+</head>
+
+<body>
+
+<header>
+  🔍 Búsqueda de Piezas por Imagen (DINOv2)
+</header>
+
+<div class="container">
+
+  <div class="panel">
+    <h3>Imagen de consulta</h3>
+
+    <input type="file" id="imagen" accept="image/*" />
+
+    <label>Top K: <span id="kValue">5</span></label>
+    <input type="range" min="1" max="10" value="5" id="topk" />
+
+    <label><b>Planta</b></label>
+    <select id="planta">
+      <option value="">Selecciona una planta</option>
+      <option value="planta1">Planta 1</option>
+      <option value="planta2">Planta 2</option>
+    </select>
+
+    <button onclick="buscar()">Buscar</button>
+
+    <div class="preview" id="preview"></div>
+  </div>
+
+  <div class="results" id="results"></div>
+
+</div>
+
+<script>
+  const inputImagen = document.getElementById("imagen");
+  const preview = document.getElementById("preview");
+  const results = document.getElementById("results");
+  const topk = document.getElementById("topk");
+  const kValue = document.getElementById("kValue");
+  const plantaSelect = document.getElementById("planta");
+
+  let roi = null;
+  let startX, startY, roiDiv;
+
+  topk.oninput = () => kValue.textContent = topk.value;
+
+  inputImagen.onchange = () => {
+    const file = inputImagen.files[0];
+    if (!file) return;
+
+    preview.innerHTML = "";
+    results.innerHTML = "";
+    roi = null;
+
+    const img = document.createElement("img");
+    img.src = URL.createObjectURL(file);
+    img.ondragstart = () => false;
+    preview.appendChild(img);
+
+    img.onload = () => habilitarROI(img);
+  };
+
+  function habilitarROI(img) {
+    let isDrawing = false;
+
+    preview.onmousedown = e => {
+      // Eliminar ROI anterior si existe
+      if (roiDiv) roiDiv.remove();
+      roi = null;
+
+      const rect = img.getBoundingClientRect();
+      isDrawing = true;
+
+      // Calcular posición inicial relativa a la imagen
+      startX = e.clientX - rect.left;
+      startY = e.clientY - rect.top;
+
+      roiDiv = document.createElement("div");
+      roiDiv.className = "roi";
+      roiDiv.style.left = startX + "px";
+      roiDiv.style.top = startY + "px";
+      roiDiv.style.width = "0px";
+      roiDiv.style.height = "0px";
+      preview.appendChild(roiDiv);
+    };
+
+    document.onmousemove = ev => {
+      if (!isDrawing) return;
+      const rect = img.getBoundingClientRect();
+
+      // Coordenadas actuales relativas a la imagen
+      let currentX = ev.clientX - rect.left;
+      let currentY = ev.clientY - rect.top;
+
+      // Limitar dentro de la imagen
+      currentX = Math.max(0, Math.min(currentX, rect.width));
+      currentY = Math.max(0, Math.min(currentY, rect.height));
+
+      // Calcular geometría (permite dibujar en cualquier dirección)
+      const width = Math.abs(currentX - startX);
+      const height = Math.abs(currentY - startY);
+      const left = Math.min(currentX, startX);
+      const top = Math.min(currentY, startY);
+
+      // Actualizar visualmente el cuadro rojo
+      roiDiv.style.width = width + "px";
+      roiDiv.style.height = height + "px";
+      roiDiv.style.left = left + "px";
+      roiDiv.style.top = top + "px";
+    };
+
+    document.onmouseup = () => {
+      if (!isDrawing) return;
+      isDrawing = false;
+
+      if (!roiDiv) return;
+
+      // === AQUÍ ESTABA EL ERROR: CALCULAR NORMALIZACIÓN ===
+      
+      // 1. Obtener dimensiones reales dibujadas en píxeles
+      const finalW = parseFloat(roiDiv.style.width);
+      const finalH = parseFloat(roiDiv.style.height);
+      const finalX = parseFloat(roiDiv.style.left);
+      const finalY = parseFloat(roiDiv.style.top);
+
+      // 2. Obtener dimensiones de la imagen mostrada
+      const imgW = img.width;
+      const imgH = img.height;
+
+      // 3. Evitar selecciones microscópicas (clics accidentales)
+      if (finalW > 10 && finalH > 10) {
+        roi = {
+          x: finalX / imgW, // 0.0 a 1.0
+          y: finalY / imgH,
+          w: finalW / imgW,
+          h: finalH / imgH
+        };
+        console.log("ROI Capturado (Normalizado):", roi);
+      } else {
+        // Si es muy chico, lo borramos
+        roiDiv.remove();
+        roiDiv = null;
+        roi = null;
+      }
+    };
+  }
+
+  async function buscar() {
+    const file = inputImagen.files[0];
+    const planta = plantaSelect.value;
+
+    if (!file) return alert("Selecciona una imagen");
+    if (!planta) return alert("Selecciona una planta");
+
+    results.innerHTML = "Buscando...";
+
+    const formData = new FormData();
+    formData.append("imagen", file);
+    formData.append("limite", topk.value);
+
+    if (roi) {
+      formData.append("x", roi.x.toFixed(4));
+      formData.append("y", roi.y.toFixed(4));
+      formData.append("w", roi.w.toFixed(4));
+      formData.append("h", roi.h.toFixed(4));
+    }
+
+    try {
+      const res = await fetch("http://localhost:8000/piezas/buscar/global", {
+        method: "POST",
+        headers: { "x-planta": planta },
+        body: formData
+      });
+
+      const data = await res.json();
+      if (!data.ok) return results.innerHTML = "Error en búsqueda";
+
+      renderResultados(data.data);
+    } catch {
+      results.innerHTML = "Error de conexión";
+    }
+  }
+
+  function renderResultados(lista) {
+    results.innerHTML = "";
+    if (!lista.length) return results.innerHTML = "Sin resultados";
+
+    lista.forEach(p => {
+      const card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML = `
+        <img src="${p.imagen ? 'http://localhost:8000' + p.imagen : ''}">
+        <div class="info">
+          <strong>${p.nombre}</strong><br>
+          <b>Máquina:</b> ${p.maquina}<br>
+          <b>Distancia:</b> ${p.distancia}<br>
+          <b>Ubicación:</b> ${p.detalles.ubicacion || '—'}<br>
+          <b>Uso en:</b> ${p.detalles.uso_en || '—'}<br>
+          <b>Proveedor:</b> ${p.detalles.proveedores || '—'}<br>
+          <span class="badge ${p.nivel.toLowerCase()}">${p.nivel}</span>
+        </div>
+      `;
+      results.appendChild(card);
+    });
+  }
+</script>
+
+</body>
+</html>

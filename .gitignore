@@ -1,0 +1,30 @@
+# ------------------
+# PYTHON
+# ------------------
+__pycache__/
+*.pyc
+venv/
+.env
+
+# ------------------
+# STORAGE (archivos generados)
+# ------------------
+storage/
+storage/logs/
+
+# ------------------
+# NODE / FRONTEND
+# ------------------
+node_modules/
+dist/
+
+# ------------------
+# MAC
+# ------------------
+.DS_Store
+
+# ------------------
+# EDITORES
+# ------------------
+.vscode/
+.idea/
