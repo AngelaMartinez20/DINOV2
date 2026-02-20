@@ -23,6 +23,12 @@ class Maquina(Base):
     tiene_foto: Mapped[bool] = mapped_column(Boolean, default=False)
     imagen: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, onupdate=func.now())
+    updated_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+
     # Relación: Una máquina tiene muchas piezas
     piezas: Mapped[List["Pieza"]] = relationship("Pieza", back_populates="maquina", cascade="all, delete-orphan")
 
@@ -34,11 +40,7 @@ class Pieza(Base):
     clave: Mapped[str] = mapped_column(String, primary_key=True)
     nombre: Mapped[str] = mapped_column(String, index=True)
     maquina_id: Mapped[str] = mapped_column(ForeignKey("maquinas.clave"), nullable=False)
-    
-    # pgvector: El campo embedding almacena los vectores de DINOv2
-    # Ajusta el número (512) si tu modelo usa una dimensión distinta (ej. 384 o 768)
     embedding: Mapped[Vector] = mapped_column(Vector(1536)) 
-    
     ubicacion: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     uso_en: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     proveedores: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -47,8 +49,14 @@ class Pieza(Base):
     imagen: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     imagen_2: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     imagen_3: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
+    # 🔒 Auditoría
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, onupdate=func.now())
+    updated_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
-    # Relación inversa: Una pieza pertenece a una máquina
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    
     maquina: Mapped["Maquina"] = relationship("Maquina", back_populates="piezas")
 
 
@@ -56,10 +64,24 @@ class Pieza(Base):
 class LogBusqueda(Base):
     __tablename__ = "logs_busqueda"
     
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    clave: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     maquina_id_filtro: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     uso_en_filtro: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     resultado_top_1_clave: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     distancia_top_1: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     imagen_busqueda_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+class HistorialCambios(Base):
+    __tablename__ = "historial_cambios"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    entidad: Mapped[str] = mapped_column(String)  # "pieza" o "maquina"
+    entidad_id: Mapped[str] = mapped_column(String)
+
+    campo_modificado: Mapped[str] = mapped_column(String)
+    valor_anterior: Mapped[Optional[str]] = mapped_column(Text)
+    valor_nuevo: Mapped[Optional[str]] = mapped_column(Text)
+
+    modificado_por: Mapped[Optional[str]] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

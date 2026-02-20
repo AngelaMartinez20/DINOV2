@@ -2,6 +2,10 @@ from typing import Generator
 from fastapi import Header, HTTPException
 from sqlalchemy.orm import Session
 from db import get_session_factory
+import logging
+
+
+logger = logging.getLogger("deps")
 
 def get_db_from_header(x_planta: str = Header(...)) -> Generator[Session, None, None]:
     """
@@ -35,7 +39,7 @@ def get_db_from_header(x_planta: str = Header(...)) -> Generator[Session, None, 
     try:
         yield db
     except Exception:
-        # Si ocurre un error dentro de tu ruta (endpoint), deshacemos cambios
+        logger.exception("Error en endpoint, haciendo rollback")
         db.rollback()
         raise
     finally:

@@ -1,5 +1,6 @@
 import io
 import os
+import logging
 import torch
 import numpy as np
 import torchvision.transforms as T
@@ -8,34 +9,29 @@ from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 register_heif_opener()
 
+EMBEDDING_DIM = 1536
 
-# =============================
-# 1. CONFIGURACIÓN DE HARDWARE
-# =============================
+
+# CONFIGURACIÓN 
+
+logger = logging.getLogger("vision")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# OPTIMIZACIÓN CRÍTICA:
-# Usamos float16 (Half Precision) si hay GPU.
-# Esto reduce el consumo de memoria del modelo GIANT a la mitad
-# y acelera la inferencia sin perder precisión en la búsqueda.
 dtype = torch.float16 if device.type == "cuda" else torch.float32
 
 print(f"[*] Cargando DINOv2 GIANT en {device} usando {dtype}...")
 
-# =============================
-# 2. CARGA DEL MODELO
-# =============================
 
-# Cargar modelo y convertir inmediatamente a la precisión deseada
+# CARGA DEL MODELO
+
 model = torch.hub.load("facebookresearch/dinov2", "dinov2_vitg14", pretrained=True)
 model.to(device)
 model.to(dtype) 
 model.eval()
 
-# =============================
+
 # 3. TRANSFORMACIONES
-# =============================
+
 
 SCALES = [448, 560]
 
@@ -74,15 +70,14 @@ def center_crop_pil(img: Image.Image, ratio: float = 0.75) -> Image.Image:
 
 def warmup_model():
     """Ejecuta una inferencia dummy para inicializar buffers del CPU/GPU"""
-    print("[*] Calentando modelo DINOv2 con entrada dummy...")
+    logger.info("Calentando modelo DINOv2...")
     try:
         dummy_input = torch.randn(1, 3, 448, 448).to(device).to(dtype)
         with torch.no_grad():
             model.forward_features(dummy_input)
-        print("[✓] Modelo listo y caliente.")
+        logger.info("Modelo listo y caliente.")
     except Exception as e:
-        print(f"[!] Error durante warmup: {e}")
-
+        logger.exception("Warmup falló")
 @torch.no_grad()
 def extraer_embedding_pil(img_pil: Image.Image) -> np.ndarray:
     
@@ -98,34 +93,24 @@ def extraer_embedding_pil(img_pil: Image.Image) -> np.ndarray:
 
     embeddings_parciales = []
 
-    # Iterar por escalas (No podemos mezclar escalas en un mismo tensor batch)
     for scale in SCALES:
         transform = get_transform(scale)
         tensors = [transform(v) for v in vistas]
         batch = torch.stack(tensors).to(device).to(dtype)
 
-        # Inferencia
+        
         out = model.forward_features(batch)
 
-        # Extracción de características
-        # shape de out: [Batch_Size, Tokens, Dim]
+        
         cls_token = out["x_norm_clstoken"]
         patch_tokens = out["x_norm_patchtokens"].mean(dim=1)
 
-        # Combinación (Global + Local)
         combined = (cls_token + patch_tokens) / 2
-        
-        # Desacoplar de la gráfica computacional y mover a CPU
         embeddings_parciales.append(combined.float().cpu())
 
-    # Stack final: Juntamos resultados de todas las escalas y vistas
-    # Shape resultante antes de mean: [N_Scales * N_Vistas, 1536]
+
     all_embs = torch.cat(embeddings_parciales, dim=0)
-    
-    # Promedio final de todas las variaciones
     final_emb = all_embs.mean(dim=0)
-    
-    # Normalización L2 (Euclidiana)
     final_emb = final_emb / final_emb.norm(p=2)
 
     if device.type == "cuda":
@@ -138,28 +123,17 @@ def extraer_embedding_pil(img_pil: Image.Image) -> np.ndarray:
 # =============================
 
 def optimizar_imagen_para_storage(img_pil: Image.Image, size=(800, 800)) -> bytes:
-    """
-    Reduce y comprime la imagen para guardarla en disco/DB.
-    No afecta al embedding (que ya se calculó con la original).
-    """
+    
     img_copy = img_pil.copy()
     img_copy.thumbnail(size, Image.LANCZOS) # Lanczos es mejor para reducción visual
     
     buffer = io.BytesIO()
-    # Guardar sin metadatos EXIF para ahorrar espacio y evitar rotaciones raras
     img_copy.save(buffer, format="JPEG", quality=85, optimize=True)
     return buffer.getvalue()
 
 def procesar_imagen_y_embedding(image_bytes: bytes, roi: tuple | None = None):
-    """
-    PIPELINE PRINCIPAL:
-    1. Lee Bytes -> PIL
-    2. Calcula Embedding (usando PIL original máxima calidad)
-    3. Optimiza Imagen (para guardar en disco)
-    
-    Retorna: (bytes_optimizados, embedding_numpy)
-    """
-    # 1. Cargar PIL una sola vez
+
+
     img_pil = Image.open(io.BytesIO(image_bytes))
     img_pil.load() # Forzar lectura en memoria
     
@@ -172,7 +146,7 @@ def procesar_imagen_y_embedding(image_bytes: bytes, roi: tuple | None = None):
             x_pct, y_pct, w_pct, h_pct = roi
             W, H = img_pil.size
 
-            # ROI viene normalizado (0–1) desde el frontend
+            
             x = int(x_pct * W)
             y = int(y_pct * H)
             w = int(w_pct * W)
@@ -190,36 +164,49 @@ def procesar_imagen_y_embedding(image_bytes: bytes, roi: tuple | None = None):
         except Exception as e:
             print(f"[Vision Warning] Error aplicando ROI: {e}")
             img_para_embedding = img_pil
-
+    try:
     # 3. Cálculo de Embeddings Híbrido
-    emb_global = extraer_embedding_pil(img_pil)
+        emb_global = extraer_embedding_pil(img_pil)
 
-    if usar_roi:
-        print(f"✅ ¡ROI DETECTADO! Aplicando fusión 60/40 en zona: {roi}")  # <--- AGREGA ESTO
-        # 
-        # Estrategia: "Enfoque guiado". 
-        # El ROI define QUÉ es, el Global define DÓNDE está.
-        emb_roi = extraer_embedding_pil(img_para_embedding)
-        
-        # Mezcla ponderada: 60% ROI, 40% Global
-        emb = (0.6 * emb_roi) + (0.4 * emb_global)
+        if usar_roi:
+            logger.info(f"ROI detectado {roi}")
+            emb_roi = extraer_embedding_pil(img_para_embedding)
+            emb = (0.6 * emb_roi) + (0.4 * emb_global)
         
         # Re-normalizar después de la suma vectorial es CRÍTICO
-        norm = np.linalg.norm(emb)
-        if norm > 0:
-            emb = emb / norm
-    else:
-        print("ℹ️ Búsqueda estándar (Imagen completa)") # <--- AGREGA ESTO
-        # Si no hay ROI, usamos solo el global
-        emb = emb_global
+            norm = np.linalg.norm(emb)
+            if norm > 0:
+             emb = emb / norm
+        else:
 
-    # 4. Generar imagen para guardar (Siempre guardamos la imagen COMPLETA)
+            emb = emb_global
+
+    except Exception as e:
+        logger.exception("Error durante inferencia DINOv2")
+        raise
+    
+    if not np.isfinite(emb).all():
+        raise ValueError("Embedding contiene NaN o Inf")
+
     img_optimizada_bytes = optimizar_imagen_para_storage(img_pil)
+
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
 
     return img_optimizada_bytes, emb
 
 def promedio_embeddings(embeddings: list):
+
     if not embeddings: return None
+
+    for e in embeddings:
+        if len(e) != EMBEDDING_DIM:
+            raise ValueError(
+                f"Embedding inválido en promedio: {len(e)}"
+            )
+        if not np.isfinite(e).all():
+            raise ValueError("Embedding con NaN/Inf en promedio")
+        
     t = torch.tensor(np.array(embeddings))
     t = t / t.norm(dim=1, keepdim=True)
     mean = t.mean(dim=0)
@@ -231,3 +218,19 @@ def process_image_path(path: str):
     with open(path, "rb") as f:
         _, emb = procesar_imagen_y_embedding(f.read())
     return emb
+
+def warmup_model():
+    logger.info("Calentando modelo DINOv2...")
+    try:
+        dummy = torch.randn(1, 3, 448, 448).to(device).to(dtype)
+        with torch.no_grad():
+            model.forward_features(dummy)
+        logger.info("Modelo listo y caliente.")
+    except Exception:
+        logger.exception("Warmup falló")
+
+
+try:
+    warmup_model()
+except Exception:
+    logger.exception("Error inicializando warmup")

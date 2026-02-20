@@ -1,8 +1,13 @@
 import os
 import logging
 import io
+import re
+import aiofiles
+from schemas.piezas import PiezaUpdate
 from datetime import datetime
 from typing import Optional, List
+
+
 
 from fastapi import (
     APIRouter, UploadFile, File, Form,
@@ -11,7 +16,7 @@ from fastapi import (
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, or_
-from limiter_config import limiter  # <--- ESTA ES LA LÍNEA QUE FALTA 🛡️
+from limiter_config import limiter 
 
 from PIL import Image
 from pillow_heif import register_heif_opener
@@ -47,8 +52,12 @@ MAX_BYTES = MAX_IMAGE_MB * 1024 * 1024
 # ==========================================
 # UTILIDADES INTERNAS
 # ==========================================
-def nombre_seguro(texto: str) -> str:
-    return "".join(c for c in texto if c.isalnum() or c in ("_", "-"))
+def nombre_seguro(nombre: str) -> str:
+    """
+    Permite solo letras, números, guiones y guiones bajos.
+    Elimina cualquier otro carácter peligroso.
+    """
+    return re.sub(r'[^a-zA-Z0-9_-]', '', nombre)
 
 def validar_imagen_real(img_bytes: bytes):
     try:
@@ -57,13 +66,33 @@ def validar_imagen_real(img_bytes: bytes):
     except Exception:
         raise HTTPException(400, "El archivo no es una imagen válida")
     
-def guardar_imagen(clave: str, campo: str, ts: int, img_bytes: bytes) -> str:
-    filename = f"piezas/{clave}_{campo}_{ts}.jpg"
-    abs_path = os.path.join("storage", filename)
-    os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-    with open(abs_path, "wb") as f:
-        f.write(img_bytes)
-    return filename
+async def guardar_imagen(clave: str, campo: str, ts: int, img_bytes: bytes) -> str:
+    # Sanitizar entradas
+    clave_segura = nombre_seguro(clave)
+    campo_seguro = nombre_seguro(campo)
+
+    if not clave_segura:
+        raise ValueError("Clave inválida")
+
+    # Construir nombre seguro
+    filename = f"{clave_segura}_{campo_seguro}_{ts}.jpg"
+
+    # Definir carpeta segura fija
+    carpeta = os.path.join("storage", "piezas")
+    
+    # Crear carpeta si no existe
+    await run_in_threadpool(lambda: os.makedirs(carpeta, exist_ok=True))
+    # Ruta final segura
+    abs_path = os.path.join(carpeta, filename)
+
+    if os.path.commonpath([abs_path, carpeta]) != carpeta:
+        raise ValueError("Intento de path traversal detectado")
+    
+    async with aiofiles.open(abs_path, "wb") as f:
+        await f.write(img_bytes)
+
+    return os.path.join("piezas", filename)
+
 
 def format_piezas(results):
     """
@@ -150,10 +179,13 @@ async def _nucleo_busqueda(
             roi_valido
         )
     except Exception as e:
-        raise HTTPException(400, f"Error procesando imagen: {str(e)}")
+        logger.exception(
+            f"[IA ERROR] Fallo procesando imagen. Tamaño: {len(raw_bytes)} bytes"
+        )
+        # 👇 AHORA SÍ, SOLO LANZA ERROR SI FALLA EL TRY
+        raise HTTPException(500, "Error interno procesando la imagen")
 
-    # 4. Query pgvector con SQLAlchemy
-    # El operador <-> en SQL es .l2_distance() en SQLAlchemy pgvector
+    # El código continúa aquí si todo salió bien
     dist_attr = models.Pieza.embedding.l2_distance(embedding).label("dist")
     
     stmt = (
@@ -189,7 +221,6 @@ async def _nucleo_busqueda(
 # ==========================================
 
 @router.post("/agregar")
-@limiter.limit("5/minute")
 async def agregar_pieza(
     request: Request,
     clave: str = Form(...),
@@ -223,11 +254,8 @@ async def agregar_pieza(
             content = await archivo.read()
 
             # 1️⃣ Validar tipo MIME real (anti spoof)
-            if not validar_archivo_real(content):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Imagen {campo} tiene un tipo no permitido"
-                )
+            validar_archivo_real(content)
+
 
             # 2️⃣ Validar que realmente sea imagen
             if not vision.validar_imagen_bytes(content):
@@ -350,20 +378,177 @@ def obtener_pieza(clave: str, db: Session = Depends(get_db_from_header)):
     return pieza
 
 @router.delete("/eliminar/{clave}")
-def eliminar_pieza(clave: str, confirmar_clave: str = Form(...), db: Session = Depends(get_db_from_header)):
+def eliminar_pieza(
+    clave: str,
+    confirmar_clave: str = Form(...),
+    db: Session = Depends(get_db_from_header)
+):
     if clave != confirmar_clave:
         raise HTTPException(400, "La clave de confirmación no coincide")
     
     pieza = db.get(models.Pieza, clave)
     if not pieza:
         raise HTTPException(404, "Pieza no encontrada")
+
+    rutas = [pieza.imagen, pieza.imagen_2, pieza.imagen_3]
+
+    try:
+        # 1️⃣ Borrar registro primero
+        db.delete(pieza)
+        db.commit()
+
+        # 2️⃣ Luego borrar archivos físicos
+        for ruta in rutas:
+            if ruta:
+                abs_path = os.path.join("storage", ruta)
+                if os.path.exists(abs_path):
+                    os.remove(abs_path)
+
+        return {"ok": True, "msg": "Eliminada correctamente"}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Error eliminando pieza: {str(e)}")
+
+from fastapi import UploadFile, File, Form
+from datetime import datetime
+
+@router.put("/piezas/{clave}")
+async def actualizar_pieza(
+    clave: str,
+    nombre: str = Form(...),
+    maquina_id: str = Form(...),
+    ubicacion: Optional[str] = Form(None),
+    uso_en: Optional[str] = Form(None),
+    proveedores: Optional[str] = Form(None),
+    imagen: Optional[UploadFile] = File(None),
+    imagen_2: Optional[UploadFile] = File(None),
+    imagen_3: Optional[UploadFile] = File(None),
+    request: Request = None,
+    db: Session = Depends(get_db_from_header)
+):
+    # 1. Buscar pieza
+    pieza = db.query(models.Pieza).filter(models.Pieza.clave == clave).first()
+    if not pieza:
+        raise HTTPException(404, "Pieza no encontrada")
+
+    # 2. Actualizar datos texto
+    pieza.nombre = nombre.strip()
+    pieza.maquina_id = maquina_id
+    pieza.ubicacion = ubicacion
+    pieza.uso_en = uso_en
+    pieza.proveedores = proveedores
     
-    # Borrar archivos físicos
-    for ruta in [pieza.imagen, pieza.imagen_2, pieza.imagen_3]:
-        if ruta:
-            try: os.remove(os.path.join("storage", ruta))
-            except: pass
+    # Auditoría simple
+    usuario = request.headers.get("X-User", "sistema")
+    # pieza.updated_by = usuario  # Descomentar si tienes este campo en el modelo
+
+    ts = int(datetime.now().timestamp() * 1000)
+    
+    # Mapeo de campos a archivos recibidos
+    inputs_archivos = {
+        "imagen": imagen, 
+        "imagen_2": imagen_2, 
+        "imagen_3": imagen_3
+    }
+
+    # Diccionario para guardar los embeddings actuales y nuevos
+    # Empezamos cargando los embeddings o calculandolos de lo que ya existe
+    # (Para simplificar, recalcularemos todo lo que esté activo para asegurar consistencia)
+    
+    rutas_finales = {
+        "imagen": pieza.imagen,
+        "imagen_2": pieza.imagen_2,
+        "imagen_3": pieza.imagen_3
+    }
+    
+    embeddings_para_promedio = []
+    rutas_a_borrar = [] # Para limpieza de archivos viejos
+
+    try:
+        for campo, file_obj in inputs_archivos.items():
             
-    db.delete(pieza)
-    db.commit()
-    return {"ok": True, "msg": "Eliminada correctamente"}
+            # A) Si el usuario subió un archivo nuevo para este campo
+            if file_obj and file_obj.filename:
+                content = await file_obj.read()
+                
+                # Validaciones
+                validar_archivo_real(content)
+                if not vision.validar_imagen_bytes(content):
+                    raise HTTPException(400, f"Archivo {campo} corrupto")
+
+                # Procesar IA una sola vez (Obtenemos bytes optimizados Y vector)
+                img_opt, emb_vector = await run_in_threadpool(
+                    vision.procesar_imagen_y_embedding, 
+                    content
+                )
+                
+                # Detectar si había imagen vieja para borrarla luego
+                ruta_vieja = getattr(pieza, campo)
+                if ruta_vieja:
+                    rutas_a_borrar.append(ruta_vieja)
+
+                # Guardar nueva imagen (CON AWAIT)
+                nueva_ruta = await guardar_imagen(clave, campo, ts, img_opt)
+                
+                # Actualizar estado temporal
+                rutas_finales[campo] = nueva_ruta
+                embeddings_para_promedio.append(emb_vector)
+                
+            # B) Si NO subió archivo, pero ya existe uno en DB, lo leemos para el embedding
+            elif rutas_finales[campo]:
+                abs_path = os.path.join("storage", rutas_finales[campo])
+                if os.path.exists(abs_path):
+                    # Usamos aiofiles para lectura no bloqueante
+                    async with aiofiles.open(abs_path, "rb") as f:
+                        old_content = await f.read()
+                    
+                    # Recalculamos embedding de la imagen existente
+                    # (Esto es necesario si cambiaste el modelo de IA recientemente, 
+                    # si no, podrías cachear el embedding en DB para evitar esto)
+                    _, emb_vector = await run_in_threadpool(
+                        vision.procesar_imagen_y_embedding, 
+                        old_content
+                    )
+                    embeddings_para_promedio.append(emb_vector)
+
+        # 3. Actualizar rutas en el objeto DB
+        pieza.imagen = rutas_finales["imagen"]
+        pieza.imagen_2 = rutas_finales["imagen_2"]
+        pieza.imagen_3 = rutas_finales["imagen_3"]
+        
+        if any(rutas_finales.values()):
+            pieza.tiene_foto = True
+        
+        # 4. Calcular y guardar Embedding Promedio
+        if embeddings_para_promedio:
+            emb_final = vision.promedio_embeddings(embeddings_para_promedio)
+            pieza.embedding = emb_final.tolist()
+        else:
+            # Si borró todas las fotos (caso raro pero posible)
+            pieza.embedding = None 
+            pieza.tiene_foto = False
+
+        db.commit()
+        db.refresh(pieza)
+
+        # 5. Limpieza (Garbage Collection) - Borrar archivos viejos reemplazados
+        # Hacemos esto DESPUÉS del commit para asegurar que no borramos si falla la DB
+        for ruta_vieja in rutas_a_borrar:
+            try:
+                abs_path_viejo = os.path.join("storage", ruta_vieja)
+                if os.path.exists(abs_path_viejo):
+                    os.remove(abs_path_viejo)
+            except Exception as e:
+                logger.warning(f"No se pudo borrar imagen antigua {ruta_vieja}: {e}")
+
+        return {
+            "ok": True, 
+            "msg": "Pieza actualizada", 
+            "clave": clave
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error actualizando pieza {clave}: {e}")
+        raise HTTPException(500, f"Error interno: {str(e)}")
