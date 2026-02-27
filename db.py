@@ -14,13 +14,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ---------- CONSTRUCCIÓN DE URLs ----------
-def get_db_url(prefix: str):
-    return f"postgresql://{os.getenv(f'{prefix}_USER')}:{os.getenv(f'{prefix}_PASS')}@{os.getenv(f'{prefix}_HOST')}:{os.getenv(f'{prefix}_PORT')}/{os.getenv(f'{prefix}_NAME')}"
 
 DB_URLS = {
-    "planta 1": get_db_url("DB_NORTE"),
-    "planta 2": get_db_url("DB_SUR")
+    "planta 1": os.getenv("DATABASE_URL_PLANTA1"),
+    "planta 2": os.getenv("DATABASE_URL_PLANTA2")
 }
 
 # ---------- CONFIGURACIÓN DE SQLALCHEMY ----------
