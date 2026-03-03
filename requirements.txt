@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+pgvector
+python-multipart
+pillow
+numpy
+torch
+torchvision
+timm
+python-dotenv
+pillow-heif
+python-magic
