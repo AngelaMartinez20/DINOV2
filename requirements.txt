@@ -12,3 +12,4 @@ timm
 python-dotenv
 pillow-heif
 python-magic
+slowapi
