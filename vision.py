@@ -24,10 +24,15 @@ print(f"[*] Cargando DINOv2 GIANT en {device} usando {dtype}...")
 
 # CARGA DEL MODELO
 
-model = torch.hub.load("facebookresearch/dinov2", "dinov2_vitg14", pretrained=True)
-model.to(device)
-model.to(dtype) 
-model.eval()
+model = None
+
+def get_model():
+    global model
+    if model is None:
+        print("Cargando modelo DINOv2...")
+        model = torch.hub.load("facebookresearch/dinov2", "dinov2_vitg14")
+        model.eval()
+    return model
 
 
 # 3. TRANSFORMACIONES
@@ -132,6 +137,7 @@ def optimizar_imagen_para_storage(img_pil: Image.Image, size=(800, 800)) -> byte
     return buffer.getvalue()
 
 def procesar_imagen_y_embedding(image_bytes: bytes, roi: tuple | None = None):
+    model = get_model()
 
 
     img_pil = Image.open(io.BytesIO(image_bytes))
