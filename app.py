@@ -1,4 +1,6 @@
 # app.py
+
+import os
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,4 +34,5 @@ app.include_router(piezas.router, prefix="/piezas", tags=["Piezas"])
 app.include_router(maquinas.router, prefix="/maquinas", tags=["Maquinas"])
 
 # 4. Archivos Estáticos
+os.makedirs("storage", exist_ok=True)
 app.mount("/static", StaticFiles(directory="storage"), name="static")
