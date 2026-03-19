@@ -4,6 +4,7 @@ import os
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+import cloudinary_config
 
 # --- IMPORTS DE SEGURIDAD (RATE LIMIT) ---
 from slowapi import _rate_limit_exceeded_handler
@@ -33,6 +34,3 @@ app.add_middleware(
 app.include_router(piezas.router, prefix="/piezas", tags=["Piezas"])
 app.include_router(maquinas.router, prefix="/maquinas", tags=["Maquinas"])
 
-# 4. Archivos Estáticos
-os.makedirs("storage", exist_ok=True)
-app.mount("/static", StaticFiles(directory="storage"), name="static")

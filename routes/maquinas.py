@@ -1,5 +1,6 @@
 import os
 import logging
+import shutil
 from fastapi import APIRouter, Depends, Form, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -7,14 +8,51 @@ from sqlalchemy import select
 # Importaciones propias
 from deps import get_db_from_header
 import models
+from security_utils import validar_archivo_real # Asegúrate de que esté en este path
 
 router = APIRouter(tags=["Maquinas"])
 logger = logging.getLogger("maquinas")
 
+# Constantes de configuración
+STORAGE_BASE = "storage"
+MAQUINAS_DIR = "maquinas"
 
-# -----------------------------
-# Agregar máquina
-# -----------------------------
+# ==========================================
+# UTILIDADES INTERNAS
+# ==========================================
+def borrar_archivo_fisico(ruta_relativa: str):
+    if ruta_relativa:
+        abs_path = os.path.join(STORAGE_BASE, ruta_relativa)
+        if os.path.exists(abs_path):
+            try:
+                os.remove(abs_path)
+            except Exception as e:
+                logger.error(f"Error al borrar archivo {abs_path}: {e}")
+
+async def procesar_imagen_maquina(clave: str, imagen: UploadFile) -> str:
+    """Valida, guarda y retorna la ruta de la imagen."""
+    content = await imagen.read()
+    
+    # 1. Seguridad: Validar que sea una imagen real (mismo método que en Piezas)
+    validar_archivo_real(content)
+    
+    # 2. Preparar directorios
+    folder_path = os.path.join(STORAGE_BASE, MAQUINAS_DIR)
+    os.makedirs(folder_path, exist_ok=True)
+    
+    # 3. Guardar archivo (Usamos .jpg por estándar, puedes mejorar esto con PIL)
+    filename = f"{MAQUINAS_DIR}/{clave}.jpg"
+    full_path = os.path.join(STORAGE_BASE, filename)
+    
+    with open(full_path, "wb") as f:
+        f.write(content)
+    
+    return filename
+
+# ==========================================
+# ENDPOINTS
+# ==========================================
+
 @router.post("/")
 async def agregar_maquina(
     clave: str = Form(...),
@@ -24,70 +62,50 @@ async def agregar_maquina(
     uso_en: str = Form(None),
     proveedores: str = Form(None),
     imagen: UploadFile | None = File(None),
-    db: Session = Depends(get_db_from_header) # <--- Inyección de Session
+    db: Session = Depends(get_db_from_header)
 ):
     clave = clave.strip()
     if len(clave) < 2:
         raise HTTPException(400, "La clave es demasiado corta")
 
-    logger.info(f"Agregando máquina con clave: {clave}")
-
-    # 1. Verificar si existe (Usando ORM)
-    # db.get busca por Primary Key automáticamente
     if db.get(models.Maquina, clave):
         raise HTTPException(400, f"La clave '{clave}' ya está en uso")
 
-    # 2. Crear el objeto
     nueva_maquina = models.Maquina(
         clave=clave,
-        nombre=nombre,
+        nombre=nombre.strip(),
         descripcion=descripcion,
         ubicacion=ubicacion,
         uso_en=uso_en,
         proveedores=proveedores,
-        tiene_foto=bool(imagen)
+        tiene_foto=False
     )
 
-    # 3. Guardar imagen si existe
-    if imagen and imagen.filename:
-        os.makedirs("storage/maquinas", exist_ok=True)
-        filename = f"maquinas/{clave}.jpg"
-        full_path = f"storage/{filename}"
+    try:
+        if imagen and imagen.filename:
+            nueva_maquina.imagen = await procesar_imagen_maquina(clave, imagen)
+            nueva_maquina.tiene_foto = True
 
-        content = await imagen.read()
-        await imagen.close()
-
-        with open(full_path, "wb") as f:
-            f.write(content)
+        db.add(nueva_maquina)
+        db.commit()
+        db.refresh(nueva_maquina)
         
-        # Asignamos la ruta al objeto
-        nueva_maquina.imagen = filename
-
-    # 4. Guardar en DB
-    db.add(nueva_maquina)
-    db.commit()      # Confirmamos la transacción
-    db.refresh(nueva_maquina) # Recargamos para tener los datos frescos
-
-    return {
-        "ok": True,
-        "data": {
-            "clave": nueva_maquina.clave,
-            "nombre": nueva_maquina.nombre,
-            "tiene_foto": nueva_maquina.tiene_foto,
-            "imagen": f"/static/{nueva_maquina.imagen}" if nueva_maquina.imagen else None
-        }
-    }
+        return {"ok": True, "data": nueva_maquina}
+    
+    except Exception as e:
+        db.rollback()
+        # Si falló la DB, borramos la imagen que se alcanzó a subir
+        if nueva_maquina.imagen:
+            borrar_archivo_fisico(nueva_maquina.imagen)
+        raise HTTPException(500, f"Error al guardar: {str(e)}")
 
 
-# -----------------------------
-# Listar máquinas
-# -----------------------------
 @router.get("/")
 def listar_maquinas(db: Session = Depends(get_db_from_header)):
-    # SELECT * FROM maquinas ORDER BY clave
     stmt = select(models.Maquina).order_by(models.Maquina.clave)
     maquinas = db.execute(stmt).scalars().all()
 
+    # Formateamos para que el frontend reciba datos consistentes
     return {
         "ok": True,
         "data": [
@@ -98,16 +116,14 @@ def listar_maquinas(db: Session = Depends(get_db_from_header)):
                 "ubicacion": m.ubicacion,
                 "uso_en": m.uso_en,
                 "proveedores": m.proveedores,
-                "foto": "SÍ" if m.tiene_foto else "NO",
+                "tiene_foto": m.tiene_foto, # Booleano puro
                 "imagen": f"/static/{m.imagen}" if m.imagen else None
             }
             for m in maquinas
         ]
     }
 
-# -----------------------------
-# Editar máquina
-# -----------------------------
+
 @router.put("/{maquina_id}")
 async def editar_maquina(
     maquina_id: str,
@@ -119,63 +135,54 @@ async def editar_maquina(
     imagen: UploadFile | None = File(None),
     db: Session = Depends(get_db_from_header)
 ):
-    # 1. Buscar la máquina
     maquina = db.get(models.Maquina, maquina_id)
     if not maquina:
         raise HTTPException(404, "Máquina no encontrada")
 
-    # 2. Actualizar campos
-    maquina.nombre = nombre
+    maquina.nombre = nombre.strip()
     maquina.descripcion = descripcion
     maquina.ubicacion = ubicacion
     maquina.uso_en = uso_en
     maquina.proveedores = proveedores
 
-    # 3. Actualizar imagen si se envía una nueva
-    if imagen and imagen.filename:
-        os.makedirs("storage/maquinas", exist_ok=True)
-        filename = f"maquinas/{maquina_id}.jpg"
-        full_path = f"storage/{filename}"
+    try:
+        if imagen and imagen.filename:
+            # Reemplazar imagen física
+            maquina.imagen = await procesar_imagen_maquina(maquina_id, imagen)
+            maquina.tiene_foto = True
 
-        content = await imagen.read()
-        await imagen.close()
-
-        with open(full_path, "wb") as f:
-            f.write(content)
-
-        maquina.imagen = filename
-        maquina.tiene_foto = True
-
-    # 4. Guardar cambios
-    db.commit() # SQLAlchemy detecta qué campos cambiaron y hace el UPDATE solo
-
-    return {"ok": True, "msg": "Máquina actualizada correctamente"}
+        db.commit()
+        return {"ok": True, "msg": "Actualizada correctamente"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Error al actualizar: {str(e)}")
 
 
-# -----------------------------
-# Eliminar máquina
-# -----------------------------
 @router.delete("/{maquina_id}")
 def eliminar_maquina(
     maquina_id: str,
     db: Session = Depends(get_db_from_header)
 ):
-    # 1. Buscar la máquina
     maquina = db.get(models.Maquina, maquina_id)
     if not maquina:
         raise HTTPException(404, "Máquina no encontrada")
 
-    # 2. Verificar piezas asociadas (Usando ORM)
-    # Contamos cuántas piezas tienen este maquina_id
+    # 1. Evitar dejar piezas "huérfanas"
     stmt = select(models.Pieza).where(models.Pieza.maquina_id == maquina_id).limit(1)
     if db.execute(stmt).first():
-        raise HTTPException(
-            status_code=409,
-            detail="No se puede eliminar la máquina porque tiene piezas asociadas"
-        )
+        raise HTTPException(409, "No se puede eliminar: tiene piezas asociadas")
 
-    # 3. Eliminar
-    db.delete(maquina)
-    db.commit()
+    ruta_imagen = maquina.imagen
 
-    return {"ok": True, "msg": "Máquina eliminada"}
+    try:
+        # 2. Borrar de la DB
+        db.delete(maquina)
+        db.commit()
+
+        # 3. Borrar archivo físico si la transacción fue exitosa
+        borrar_archivo_fisico(ruta_imagen)
+
+        return {"ok": True, "msg": "Máquina y archivos eliminados"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Error al eliminar: {str(e)}")

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Máquinas</title>
+</head>
+<body>
+
+<h2>Lista de máquinas</h2>
+<button onclick="cargar()">Consultar</button>
+
+<pre id="resultado"></pre>
+
+<script>
+async function cargar(){
+
+    const res = await fetch("https://dinov2-1.onrender.com/maquinas/",{
+        method:"GET",
+        headers:{
+            "x-planta":"planta 1"
+        }
+    })
+
+    const data = await res.json()
+
+    document.getElementById("resultado").textContent =
+        JSON.stringify(data,null,2)
+}
+</script>
+
+</body>
+</html>
