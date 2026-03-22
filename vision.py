@@ -76,16 +76,17 @@ def center_crop_pil(img: Image.Image, ratio: float = 0.75) -> Image.Image:
 def warmup_model():
     logger.info("Calentando modelo DINOv2...")
     try:
-        m = get_model()  # 🔥 AQUÍ ESTÁ EL FIX
+        m = get_model()
 
         dummy = torch.randn(1, 3, 448, 448).to(device).to(dtype)
+
         with torch.no_grad():
             m.forward_features(dummy)
 
-        logger.info("Modelo listo y caliente.")
+        logger.info("🔥 Modelo listo y caliente.")
     except Exception as e:
-        logger.exception("Warmup falló")
-
+        logger.exception(f"Warmup falló: {e}")
+        
 @torch.no_grad()     
 def extraer_embedding_pil(img_pil: Image.Image) -> np.ndarray:
     m = get_model()  # 🔥 FIX
