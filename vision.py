@@ -86,7 +86,7 @@ def warmup_model():
         logger.info("🔥 Modelo listo y caliente.")
     except Exception as e:
         logger.exception(f"Warmup falló: {e}")
-        
+
 @torch.no_grad()     
 def extraer_embedding_pil(img_pil: Image.Image) -> np.ndarray:
     m = get_model()  # 🔥 FIX
@@ -228,15 +228,7 @@ def process_image_path(path: str):
         _, emb = procesar_imagen_y_embedding(f.read())
     return emb
 
-def warmup_model():
-    logger.info("Calentando modelo DINOv2...")
-    try:
-        dummy = torch.randn(1, 3, 448, 448).to(device).to(dtype)
-        with torch.no_grad():
-            model.forward_features(dummy)
-        logger.info("Modelo listo y caliente.")
-    except Exception:
-        logger.exception("Warmup falló")
+
 
 
 try:
