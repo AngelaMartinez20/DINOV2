@@ -74,17 +74,21 @@ def center_crop_pil(img: Image.Image, ratio: float = 0.75) -> Image.Image:
     return img.crop((left, top, left + nw, top + nh))
 
 def warmup_model():
-    """Ejecuta una inferencia dummy para inicializar buffers del CPU/GPU"""
     logger.info("Calentando modelo DINOv2...")
     try:
-        dummy_input = torch.randn(1, 3, 448, 448).to(device).to(dtype)
+        m = get_model()  # 🔥 AQUÍ ESTÁ EL FIX
+
+        dummy = torch.randn(1, 3, 448, 448).to(device).to(dtype)
         with torch.no_grad():
-            model.forward_features(dummy_input)
+            m.forward_features(dummy)
+
         logger.info("Modelo listo y caliente.")
     except Exception as e:
         logger.exception("Warmup falló")
-@torch.no_grad()
+
+@torch.no_grad()     
 def extraer_embedding_pil(img_pil: Image.Image) -> np.ndarray:
+    m = get_model()  # 🔥 FIX
     
     img_pil = ImageOps.exif_transpose(img_pil)
 
@@ -103,8 +107,7 @@ def extraer_embedding_pil(img_pil: Image.Image) -> np.ndarray:
         tensors = [transform(v) for v in vistas]
         batch = torch.stack(tensors).to(device).to(dtype)
 
-        
-        out = model.forward_features(batch)
+        out = m.forward_features(batch)  # 🔥 FIX
 
         
         cls_token = out["x_norm_clstoken"]
@@ -137,8 +140,7 @@ def optimizar_imagen_para_storage(img_pil: Image.Image, size=(800, 800)) -> byte
     return buffer.getvalue()
 
 def procesar_imagen_y_embedding(image_bytes: bytes, roi: tuple | None = None):
-    model = get_model()
-
+    m = get_model()  # opcional pero recomendado
 
     img_pil = Image.open(io.BytesIO(image_bytes))
     img_pil.load() # Forzar lectura en memoria

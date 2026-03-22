@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>CRUD Piezas y Máquinas</title>
+<style>
+    body { font-family: Arial; margin: 20px; background:#f5f5f5; }
+    h1 { border-bottom: 2px solid #ccc; padding-bottom: 10px; }
+    h2 { margin-top:40px; color: #333; }
+    form { background:white; padding:15px; margin-bottom:20px; border-radius:10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    input, button { margin:5px 0; display:block; padding:8px; width:100%; box-sizing: border-box; }
+    button { background:#007bff; color:white; border:none; cursor:pointer; font-weight: bold; border-radius: 4px; }
+    button:hover { background:#0056b3; }
+    pre { background:#1e1e1e; color:#0f0; padding:15px; overflow:auto; border-radius: 8px; }
+    .container { display: flex; gap: 20px; }
+    .column { flex: 1; }
+</style>
+</head>
+<body>
+
+<div class="container">
+    <div class="column">
+        <h1>CRUD Piezas</h1>
+
+        <h2>Agregar pieza</h2>
+        <form id="formAgregar">
+            <input name="clave" placeholder="Clave" required>
+            <input name="nombre" placeholder="Nombre" required>
+            <input name="maquina_id" placeholder="Máquina ID" required>
+            <input name="ubicacion" placeholder="Ubicación">
+            <input name="uso_en" placeholder="Uso en">
+            <input name="proveedores" placeholder="Proveedores">
+            <input type="file" name="imagen" required>
+            <input type="file" name="imagen_2">
+            <input type="file" name="imagen_3">
+            <button>Agregar</button>
+        </form>
+
+        <h2>Buscar Global</h2>
+        <form id="formBuscarGlobal">
+            <input type="file" name="imagen" required>
+            <input name="limite" placeholder="Limite (default 5)">
+            <button>Buscar</button>
+        </form>
+
+        <h2>Buscar por Máquina</h2>
+        <form id="formBuscarMaquina">
+            <input name="maquina_id" placeholder="Máquina ID" required>
+            <input type="file" name="imagen" required>
+            <button>Buscar</button>
+        </form>
+
+        <h2>Listar piezas por máquina</h2>
+        <form id="formListar">
+            <input name="maquina_id" placeholder="Máquina ID" required>
+            <button>Listar</button>
+        </form>
+
+        <h2>Obtener pieza</h2>
+        <form id="formObtener">
+            <input name="clave" placeholder="Clave" required>
+            <button>Obtener</button>
+        </form>
+
+        <h2>Eliminar pieza</h2>
+        <form id="formEliminar">
+            <input name="clave" placeholder="Clave" required>
+            <input name="confirmar_clave" placeholder="Confirmar clave" required>
+            <button>Eliminar</button>
+        </form>
+
+        <h2>Actualizar pieza</h2>
+        <form id="formActualizar">
+            <input name="clave" placeholder="Clave" required>
+            <input name="nombre" placeholder="Nombre" required>
+            <input name="maquina_id" placeholder="Máquina ID" required>
+            <input name="ubicacion" placeholder="Ubicación">
+            <input name="uso_en" placeholder="Uso en">
+            <input name="proveedores" placeholder="Proveedores">
+            <input type="file" name="imagen">
+            <input type="file" name="imagen_2">
+            <input type="file" name="imagen_3">
+            <button>Actualizar</button>
+        </form>
+    </div>
+
+    <div class="column">
+        <h1>CRUD Máquinas</h1>
+
+        <h2>Agregar Máquina</h2>
+        <form id="formAgregarMaquina">
+            <input name="maquina_id" placeholder="ID de la Máquina" required>
+            <input name="nombre" placeholder="Nombre de la Máquina" required>
+            <button>Agregar Máquina</button>
+        </form>
+
+        <h2>Listar Máquinas</h2>
+        <form id="formListarMaquinas">
+            <button>Listar Todas</button>
+        </form>
+
+        <h2>Editar Máquina</h2>
+        <form id="formEditarMaquina">
+            <input name="maquina_id" placeholder="ID de la Máquina a editar" required>
+            <input name="nombre" placeholder="Nuevo Nombre">
+            <button>Editar Máquina</button>
+        </form>
+
+        <h2>Eliminar Máquina</h2>
+        <form id="formEliminarMaquina">
+            <input name="maquina_id" placeholder="ID de la Máquina a eliminar" required>
+            <button style="background:#dc3545;">Eliminar Máquina</button>
+        </form>
+        
+        <div style="position: sticky; top: 20px;">
+            <h2>Respuesta del Servidor</h2>
+            <pre id="output">Esperando acción...</pre>
+        </div>
+    </div>
+</div>
+
+<script>
+const BASE_URL = "https://dinov2-1.onrender.com"; // CAMBIA ESTO
+const headers = {
+    "x-planta": "planta1" // CAMBIA SEGÚN TU SISTEMA
+};
+
+function mostrar(data) {
+    document.getElementById("output").textContent = JSON.stringify(data, null, 2);
+}
+
+// ==========================================================
+//                    MÉTODOS PIEZAS
+// ==========================================================
+
+document.getElementById("formAgregar").onsubmit = async e => {
+    e.preventDefault();
+    const res = await fetch(BASE_URL + "/piezas/agregar", { method: "POST", headers, body: new FormData(e.target) });
+    mostrar(await res.json());
+};
+
+document.getElementById("formBuscarGlobal").onsubmit = async e => {
+    e.preventDefault();
+    const res = await fetch(BASE_URL + "/piezas/buscar/global", { method: "POST", headers, body: new FormData(e.target) });
+    mostrar(await res.json());
+};
+
+document.getElementById("formBuscarMaquina").onsubmit = async e => {
+    e.preventDefault();
+    const res = await fetch(BASE_URL + "/piezas/buscar/maquina", { method: "POST", headers, body: new FormData(e.target) });
+    mostrar(await res.json());
+};
+
+document.getElementById("formListar").onsubmit = async e => {
+    e.preventDefault();
+    const maquina_id = e.target.maquina_id.value;
+    const res = await fetch(BASE_URL + `/piezas/maquina/${maquina_id}`, { headers });
+    mostrar(await res.json());
+};
+
+document.getElementById("formObtener").onsubmit = async e => {
+    e.preventDefault();
+    const clave = e.target.clave.value;
+    const res = await fetch(BASE_URL + `/piezas/pieza/${clave}`, { headers });
+    mostrar(await res.json());
+};
+
+document.getElementById("formEliminar").onsubmit = async e => {
+    e.preventDefault();
+    const clave = e.target.clave.value;
+    const res = await fetch(BASE_URL + `/piezas/eliminar/${clave}`, { method: "DELETE", headers, body: new FormData(e.target) });
+    mostrar(await res.json());
+};
+
+document.getElementById("formActualizar").onsubmit = async e => {
+    e.preventDefault();
+    const clave = e.target.clave.value;
+    const res = await fetch(BASE_URL + `/piezas/piezas/${clave}`, { method: "PUT", headers, body: new FormData(e.target) });
+    mostrar(await res.json());
+};
+
+// ==========================================================
+//                   MÉTODOS MÁQUINAS
+// ==========================================================
+
+// POST /maquinas/
+document.getElementById("formAgregarMaquina").onsubmit = async e => {
+    e.preventDefault();
+    const res = await fetch(BASE_URL + "/maquinas/", { 
+        method: "POST", 
+        headers, 
+        body: new FormData(e.target) 
+    });
+    mostrar(await res.json());
+};
+
+// GET /maquinas/
+document.getElementById("formListarMaquinas").onsubmit = async e => {
+    e.preventDefault();
+    const res = await fetch(BASE_URL + "/maquinas/", { 
+        method: "GET", 
+        headers 
+    });
+    mostrar(await res.json());
+};
+
+// PUT /maquinas/{maquina_id}
+document.getElementById("formEditarMaquina").onsubmit = async e => {
+    e.preventDefault();
+    const maquina_id = e.target.maquina_id.value;
+    const res = await fetch(BASE_URL + `/maquinas/${maquina_id}`, { 
+        method: "PUT", 
+        headers, 
+        body: new FormData(e.target) 
+    });
+    mostrar(await res.json());
+};
+
+// DELETE /maquinas/{maquina_id}
+document.getElementById("formEliminarMaquina").onsubmit = async e => {
+    e.preventDefault();
+    const maquina_id = e.target.maquina_id.value;
+    const res = await fetch(BASE_URL + `/maquinas/${maquina_id}`, { 
+        method: "DELETE", 
+        headers 
+    });
+    mostrar(await res.json());
+};
+
+</script>
+
+</body>
+</html>
