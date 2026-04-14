@@ -26,15 +26,26 @@ os.environ["TORCH_HOME"] = "/tmp/torch"
 # CARGA DEL MODELO
 
 model = None
+model_lock = threading.Lock()
+
+
+import threading
+
+model = None
+model_lock = threading.Lock()
 
 def get_model():
     global model
     if model is None:
-        print("Cargando DINOv2 vitb14...")
-        model = torch.hub.load(
-            "facebookresearch/dinov2",
-            "dinov2_vitb14"
-        )
+        with model_lock:
+            if model is None:
+                print("Cargando DINOv2 vitb14 UNA sola vez...")
+                model = torch.hub.load(
+                    "facebookresearch/dinov2",
+                    "dinov2_vitb14"
+                )
+                model.to(device).to(dtype)
+                model.eval()
     return model
 
 # 3. TRANSFORMACIONES
@@ -73,19 +84,7 @@ def center_crop_pil(img: Image.Image, ratio: float = 0.75) -> Image.Image:
     top = (h - nh) // 2
     return img.crop((left, top, left + nw, top + nh))
 
-#def warmup_model():
-    logger.info("Calentando modelo DINOv2...")
-    try:
-        m = get_model()
 
-        dummy = torch.randn(1, 3, 448, 448).to(device).to(dtype)
-
-        with torch.no_grad():
-            m.forward_features(dummy)
-
-        logger.info("Modelo listo y caliente.")
-    except Exception as e:
-        logger.exception(f"Warmup falló: {e}")
 
 @torch.no_grad()     
 def extraer_embedding_pil(img_pil: Image.Image) -> np.ndarray:
@@ -229,7 +228,3 @@ def process_image_path(path: str):
 
 
 
-try:
-    warmup_model()
-except Exception:
-    logger.exception("Error inicializando warmup")
