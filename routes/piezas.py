@@ -44,6 +44,7 @@ MAX_IMAGE_MB = 5
 MAX_BYTES = MAX_IMAGE_MB * 1024 * 1024
 EXPECTED_EMBEDDING_DIM = 1536 # Ajusta esto según el tamaño de tu vector
 CLOUDINARY_TIMEOUT = 100000.0 
+IA_TIMEOUT = 240
 # ==========================================
 # UTILIDADES E INFRAESTRUCTURA
 # ==========================================
@@ -207,8 +208,8 @@ async def _nucleo_busqueda(
     
     try:
         img_optimizada, embedding = await asyncio.wait_for(
-            run_in_threadpool(vision.procesar_imagen_y_embedding, raw_bytes, roi),
-            timeout=90.0
+        run_in_threadpool(vision.procesar_imagen_y_embedding, raw_bytes, roi),
+        timeout=IA_TIMEOUT
         )
     except asyncio.TimeoutError:
         raise HTTPException(504, "El análisis IA tardó demasiado")
@@ -243,6 +244,7 @@ async def _nucleo_busqueda(
         background_tasks.add_task(guardar_log_imagen_fisica, img_optimizada, abs_path)
 
         safe_meta = meta_log or {}
+        
         background_tasks.add_task(
             registrar_log_busqueda_bg,
             planta,
@@ -255,9 +257,6 @@ async def _nucleo_busqueda(
 
     return format_piezas(results)
 
-# ==========================================
-# ENDPOINTS
-# ==========================================
 
 @router.post("/agregar")
 @limiter.limit("20/minute")

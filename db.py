@@ -7,7 +7,6 @@ from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 load_dotenv()
 
-# ---------- LOGGING ----------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s"
@@ -20,9 +19,6 @@ DB_URLS = {
     "planta 2": os.getenv("DATABASE_URL_PLANTA2")
 }
 
-# ---------- CONFIGURACIÓN DE SQLALCHEMY ----------
-
-# 1. Crear los Engines (Motores)
 engines = {}
 
 try:
@@ -51,12 +47,10 @@ class Base(DeclarativeBase):
 # ---------- UTILIDADES ----------
 
 def get_session_factory(planta_nombre: str):
-    """
-    Retorna la fábrica de sesiones correspondiente a la planta.
-    """
+    
     key = planta_nombre.strip().lower()
     
-    # Mapeo de alias
+    
     if key in ("planta1", "p1", "norte", "1"): key = "planta 1"
     if key in ("planta2", "p2", "sur", "2"): key = "planta 2"
 
@@ -66,3 +60,4 @@ def get_session_factory(planta_nombre: str):
         raise ValueError(f"No existe configuración de base de datos para: {planta_nombre}")
     
     return factory
+
