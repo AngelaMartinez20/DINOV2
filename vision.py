@@ -73,7 +73,7 @@ def center_crop_pil(img: Image.Image, ratio: float = 0.75) -> Image.Image:
     top = (h - nh) // 2
     return img.crop((left, top, left + nw, top + nh))
 
-def warmup_model():
+#def warmup_model():
     logger.info("Calentando modelo DINOv2...")
     try:
         m = get_model()
