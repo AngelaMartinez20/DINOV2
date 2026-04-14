@@ -12,7 +12,9 @@ from limiter_config import limiter
 from routes import piezas, maquinas
 
 app = FastAPI(title="Catálogo Inteligente de Piezas")
-
+@app.get("/")
+def root():
+    return {"status": "ok"}
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
