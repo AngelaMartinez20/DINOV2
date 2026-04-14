@@ -282,7 +282,7 @@
     }
 
     try {
-      const res = await fetch("http://localhost:8000/piezas/buscar/global", {
+      const res = await fetch("https://dinov2-1.onrender.com/piezas/buscar/global", {
         method: "POST",
         headers: { "x-planta": planta },
         body: formData

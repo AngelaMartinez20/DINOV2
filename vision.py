@@ -29,6 +29,7 @@ model = None
 def get_model():
     global model
     if model is None:
+        "./dinov2",
         print("Cargando modelo DINOv2...")
         model = torch.hub.load("facebookresearch/dinov2", "dinov2_vitg14")
         model.eval()
