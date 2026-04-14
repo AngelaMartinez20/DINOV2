@@ -20,6 +20,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 dtype = torch.float16 if device.type == "cuda" else torch.float32
 
 print(f"[*] Cargando DINOv2 GIANT en {device} usando {dtype}...")
+os.environ["TORCH_HOME"] = "/tmp/torch"
 
 
 # CARGA DEL MODELO
@@ -29,12 +30,12 @@ model = None
 def get_model():
     global model
     if model is None:
-        "./dinov2",
-        print("Cargando modelo DINOv2...")
-        model = torch.hub.load("facebookresearch/dinov2", "dinov2_vitg14")
-        model.eval()
+        print("Cargando DINOv2 vitb14...")
+        model = torch.hub.load(
+            "facebookresearch/dinov2",
+            "dinov2_vitb14"
+        )
     return model
-
 
 # 3. TRANSFORMACIONES
 
