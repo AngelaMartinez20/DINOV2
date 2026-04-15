@@ -10,7 +10,7 @@ from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 register_heif_opener()
 
-EMBEDDING_DIM = 1536
+EMBEDDING_DIM = 768
 
 
 # CONFIGURACIÓN 
