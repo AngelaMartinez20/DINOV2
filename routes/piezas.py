@@ -42,7 +42,7 @@ logger = logging.getLogger("piezas")
 ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
 MAX_IMAGE_MB = 5
 MAX_BYTES = MAX_IMAGE_MB * 1024 * 1024
-EXPECTED_EMBEDDING_DIM = 1536 # Ajusta esto según el tamaño de tu vector
+EXPECTED_EMBEDDING_DIM = 768 # Ajusta esto según el tamaño de tu vector
 CLOUDINARY_TIMEOUT = 100000.0 
 IA_TIMEOUT = 240
 # ==========================================
